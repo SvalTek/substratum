@@ -13,6 +13,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Live Demo', link: '/demos/commons' },
       { text: 'Architecture', link: '/guide/architecture' },
       { text: 'API', link: '/api/' },
     ],
@@ -31,6 +32,12 @@ export default defineConfig({
           { text: 'Middleware & Plugins', link: '/guide/middleware-and-plugins' },
           { text: 'Transactions', link: '/guide/transactions' },
           { text: 'Architecture & Limits', link: '/guide/architecture' },
+        ],
+      },
+      {
+        text: 'Interactive Demos',
+        items: [
+          { text: 'Commons Lab', link: '/demos/commons' },
         ],
       },
       {

@@ -10,11 +10,11 @@ hero:
       text: Get Started
       link: /guide/getting-started
     - theme: alt
+      text: Live Demo (Commons)
+      link: /demos/commons
+    - theme: alt
       text: API Reference
       link: /api/
-    - theme: alt
-      text: Architecture
-      link: /guide/architecture
 
 features:
   - title: Region-First Spatial Model
