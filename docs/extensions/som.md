@@ -55,3 +55,5 @@ map.dispose(true);
 | `learningDecay` / `radiusDecay` | `0` / `0` | Per-step exponential decay rates |
 | `metric` | `'euclidean'` | `'euclidean'` or `'cosine'` vector comparison |
 | `seed` | `0x5eed1234` | Deterministic PRNG seed for initial weights |
+
+> **Transaction boundaries:** If persisting lattice nodes fails during `train()` or `dispose(true)`, internal weights and `stepCount` are restored. However, if an enclosing caller `world.batch()` throws *after* `train()` returns, private SOM weights do not automatically roll back. Also note that `createSOM()` initialises fresh weights and does not reload previously persisted nodes on construction.

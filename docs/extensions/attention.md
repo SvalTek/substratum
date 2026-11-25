@@ -53,7 +53,7 @@ Because a single `ContentId` can be attached to multiple cells, `attend()` lets 
 | `overlap` | `boolean` | `false` | Include intersecting multi-cell matches when `target` is a `Region` |
 | `kind`, `where`, `tags`, `filter` | `QueryOptions` | — | Standard Substratum semantic filters |
 | `scope` | `'attachment' \| 'content'` | `'attachment'` | Rank per-attachment or deduplicate by `ContentId` |
-| `combine` | `'max' \| 'sum' \| 'mean' \| 'min' \| fn` | `'max'` | How multi-placement scores are combined when `scope: 'content'` |
+| `combine` | `'max' \| 'sum' \| 'mean' \| 'min' \| fn` | *(omitted)* | When `scope: 'content'` and `combine` is omitted, selects one representative placement before scoring; when provided, scores all retrieved placements and combines them |
 | `score` | `(hit) => number` | `gaussian(hit.distance ?? 0, 1)` | Raw scoring function |
 | `normalize` | `(scores) => number[] \| false` | `l1Normalize` | Applied after top-K `limit`; pass `false` to keep raw scores |
 | `limit` | `number` | — | Maximum number of top-ranked results to return |

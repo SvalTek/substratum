@@ -70,13 +70,19 @@ export function createPropagation<
     const activationFn = options.activation ?? 'tanh';
     const radius = options.radius ?? 16;
 
-    if (decay < 0 || decay > 1) throw RangeError('decay must be in [0, 1]');
-    if (threshold < 0) throw RangeError('threshold must be nonnegative');
+    if (!Number.isFinite(decay) || decay < 0 || decay > 1) throw RangeError('decay must be finite and in [0, 1]');
+    if (!Number.isFinite(threshold) || threshold < 0) throw RangeError('threshold must be finite and nonnegative');
+    if (!Number.isSafeInteger(defaultMaxIter) || defaultMaxIter < 0) {
+        throw RangeError('maxIterations must be a nonnegative integer');
+    }
+    if (!Number.isFinite(radius) || radius < 0) throw RangeError('radius must be finite and nonnegative');
 
     const neighborCache = new Map<ContentId, readonly NeighborLink[]>();
-    const offSpatial = world.on('spatial:change', () => {
-        neighborCache.clear();
-    });
+    const offSpatial = options.neighbors
+        ? undefined
+        : world.on('spatial:change', () => {
+            neighborCache.clear();
+        });
 
     const defaultNeighbors = (id: ContentId): readonly NeighborLink[] => {
         const cached = neighborCache.get(id);
@@ -107,22 +113,31 @@ export function createPropagation<
     const resolveNeighbors = options.neighbors ?? defaultNeighbors;
     let state = new Map<ContentId, number>();
     let iteration = 0;
+    let disposed = false;
+
+    const assertAlive = () => {
+        if (disposed) throw Error('PropagationNetwork has been disposed');
+    };
 
     return {
         activate(id, amount) {
+            assertAlive();
             if (!Number.isFinite(amount)) throw RangeError('activation amount must be finite');
             const next = (state.get(id) ?? 0) + amount;
             if (Math.abs(next) < threshold) state.delete(id);
             else state.set(id, next);
         },
         step() {
+            assertAlive();
             const incoming = new Map<ContentId, { sum: number; count: number; max: number }>();
             for (const [id, act] of state) {
                 if (Math.abs(act) < threshold) continue;
                 const links = resolveNeighbors(id, world);
                 for (let i = 0; i < links.length; i++) {
                     const link = links[i]!;
-                    const msg = act * (link.weight ?? 1);
+                    const w = link.weight ?? 1;
+                    if (!Number.isFinite(w)) throw RangeError('neighbour weight must be finite');
+                    const msg = act * w;
                     let acc = incoming.get(link.id);
                     if (!acc) {
                         acc = { sum: msg, count: 1, max: msg };
@@ -147,6 +162,7 @@ export function createPropagation<
                     else agg = inc.max;
                 }
                 const combined = inc ? applyActivation(activationFn, retained + agg) : retained;
+                if (!Number.isFinite(combined)) throw RangeError('activation output must be finite');
                 if (Math.abs(combined) >= threshold) {
                     next.set(id, combined);
                 }
@@ -158,6 +174,13 @@ export function createPropagation<
             return state.size;
         },
         run(maxIterations = defaultMaxIter, tolerance = 1e-4) {
+            assertAlive();
+            if (!Number.isSafeInteger(maxIterations) || maxIterations < 0) {
+                throw RangeError('maxIterations must be a nonnegative integer');
+            }
+            if (!Number.isFinite(tolerance) || tolerance < 0) {
+                throw RangeError('tolerance must be finite and nonnegative');
+            }
             let steps = 0;
             for (let i = 0; i < maxIterations; i++) {
                 const prev = state;
@@ -188,8 +211,11 @@ export function createPropagation<
             iteration = 0;
         },
         dispose() {
-            offSpatial();
+            if (disposed) return;
+            disposed = true;
+            offSpatial?.();
             neighborCache.clear();
+            state.clear();
         },
     };
 }

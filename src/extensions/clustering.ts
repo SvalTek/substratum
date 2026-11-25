@@ -60,6 +60,10 @@ export interface ClusterPluginOptions<
     readonly createMetadata?: (cluster: Cluster<C, M, K>) => Metadata<M, CK>;
     /** Remove materialised cluster content on plugin disposal. Default: false. */
     readonly removeOnDispose?: boolean;
+    /** Reuse existing cluster ContentIds across recomputations when membership Jaccard similarity >= identityThreshold. Default: false. */
+    readonly preserveIdentity?: boolean;
+    /** Minimum Jaccard similarity in (0, 1] required to match a cluster across recomputations. Default: 0.5. */
+    readonly identityThreshold?: number;
 }
 
 function addressCenter<C extends object, M extends object, E extends object>(
@@ -288,22 +292,33 @@ export function createClusterPlugin<
 >(
     options: ClusterPluginOptions<C, M, K, CK>,
 ): Plugin<C, M, E> {
+    const threshold = options.identityThreshold ?? 0.5;
+    if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
+        throw RangeError('identityThreshold must be finite and in (0, 1]');
+    }
     return world => {
-        let activeClusterIds: ContentId<CK>[] = [];
+        let activeClusters: Array<{ id: ContentId<CK>; members: ReadonlySet<ContentId<K>> }> = [];
         let syncing = false;
 
         const clearMaterialised = () => {
-            if (!activeClusterIds.length) return;
-            world.batch(() => {
-                for (let i = 0; i < activeClusterIds.length; i++) {
-                    const id = activeClusterIds[i]!;
-                    if (world.hasContent(id)) {
-                        world.detachAll(id);
-                        world.removeContent(id);
+            if (!activeClusters.length) return;
+            try {
+                world.batch(() => {
+                    for (let i = 0; i < activeClusters.length; i++) {
+                        const id = activeClusters[i]!.id;
+                        if (world.hasContent(id)) {
+                            world.detachAll(id);
+                            world.removeContent(id);
+                        }
                     }
+                });
+                activeClusters = [];
+            } catch (err) {
+                if (err instanceof EventDispatchError) {
+                    activeClusters = [];
                 }
-                activeClusterIds = [];
-            });
+                throw err;
+            }
         };
 
         const recompute = () => {
@@ -316,11 +331,45 @@ export function createClusterPlugin<
                         (meta.kind as string) !== (options.clusterKind as string)
                         && (!options.filter || options.filter(meta)),
                 });
-                const nextIds: ContentId<CK>[] = [];
+
+                const nextClusters: Array<{ id: ContentId<CK>; members: ReadonlySet<ContentId<K>> }> = [];
+                const matchedOld = new Set<number>();
+                const matchedNew = new Map<number, ContentId<CK>>();
+
+                if (options.preserveIdentity && activeClusters.length && clusters.length) {
+                    const candidates: Array<{ oldIdx: number; newIdx: number; score: number }> = [];
+                    for (let oi = 0; oi < activeClusters.length; oi++) {
+                        const oldSet = activeClusters[oi]!.members;
+                        for (let ni = 0; ni < clusters.length; ni++) {
+                            const newIds = clusters[ni]!.memberIds;
+                            let intersection = 0;
+                            for (let k = 0; k < newIds.length; k++) {
+                                if (oldSet.has(newIds[k]!)) intersection++;
+                            }
+                            if (intersection === 0) continue;
+                            const union = oldSet.size + newIds.length - intersection;
+                            const jaccard = intersection / union;
+                            if (jaccard >= threshold) {
+                                candidates.push({ oldIdx: oi, newIdx: ni, score: jaccard });
+                            }
+                        }
+                    }
+                    candidates.sort((a, b) => b.score - a.score || a.oldIdx - b.oldIdx || a.newIdx - b.newIdx);
+                    for (let i = 0; i < candidates.length; i++) {
+                        const { oldIdx, newIdx } = candidates[i]!;
+                        if (matchedOld.has(oldIdx) || matchedNew.has(newIdx)) continue;
+                        const oldId = activeClusters[oldIdx]!.id;
+                        if (!world.hasContent(oldId)) continue;
+                        matchedOld.add(oldIdx);
+                        matchedNew.set(newIdx, oldId);
+                    }
+                }
+
                 try {
                     world.batch(() => {
-                        for (let i = 0; i < activeClusterIds.length; i++) {
-                            const id = activeClusterIds[i]!;
+                        for (let i = 0; i < activeClusters.length; i++) {
+                            if (matchedOld.has(i)) continue;
+                            const id = activeClusters[i]!.id;
                             if (world.hasContent(id)) {
                                 world.detachAll(id);
                                 world.removeContent(id);
@@ -336,18 +385,23 @@ export function createClusterPlugin<
                             const meta = options.createMetadata
                                 ? options.createMetadata(c)
                                 : ({ kind: options.clusterKind } as unknown as Metadata<M, CK>);
-                            const id = world.putPoint(
-                                pos,
-                                { ...meta, kind: options.clusterKind } as Metadata<M, CK> & { readonly kind: CK },
-                                options.createPayload(c),
-                            );
-                            nextIds.push(id);
+                            const fullMeta = { ...meta, kind: options.clusterKind } as Metadata<M, CK> & { readonly kind: CK };
+                            const payload = options.createPayload(c);
+                            const existingId = matchedNew.get(i);
+                            if (existingId) {
+                                world.setContent(existingId, payload);
+                                world.moveContent(existingId, pos, { metadata: fullMeta });
+                                nextClusters.push({ id: existingId, members: new Set(c.memberIds) });
+                            } else {
+                                const id = world.putPoint(pos, fullMeta, payload);
+                                nextClusters.push({ id, members: new Set(c.memberIds) });
+                            }
                         }
                     });
-                    activeClusterIds = nextIds;
+                    activeClusters = nextClusters;
                 } catch (err) {
                     if (err instanceof EventDispatchError) {
-                        activeClusterIds = nextIds;
+                        activeClusters = nextClusters;
                     }
                     throw err;
                 }

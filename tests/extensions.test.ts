@@ -452,6 +452,55 @@ test('review regressions: overflow, prototype keys, rollbacks, and cleanup', () 
     try { som.train([42]); } catch { somThrew = true; }
     assert(somThrew);
     approx(som.weightsAt([0, 0, 0])![0]!, beforeW);
+
+    // 7. som dispose(true) rollback on veto & non-finite vector rejection
+    let nanVecThrew = false;
+    try { som.train([Number.NaN]); } catch { nanVecThrew = true; }
+    assert(nanVecThrew);
+    const stopVeto = wSom.middleware((_m, next) => {
+        // veto removal of somNode
+        if (_m.target === 'attachment' && _m.operation === 'remove') return;
+        next();
+    });
+    let disposeThrew = false;
+    try { som.dispose(true); } catch { disposeThrew = true; }
+    assert(disposeThrew && [...wSom.searchContent(undefined, { kind: 'somNode' })].length === 1);
+    stopVeto();
+    som.dispose(true);
+    assert([...wSom.searchContent(undefined, { kind: 'somNode' })].length === 0);
+
+    // 8. clustering preserveIdentity keeps ContentId across recomputation
+    const wIdCl = makeWorld();
+    wIdCl.putPoint([0, 0, 0], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    wIdCl.putPoint([1, 0, 0], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    const stopIdCl = wIdCl.use(createClusterPlugin<C, M, E, 'observation', 'cluster'>({
+        kind: 'observation',
+        clusterKind: 'cluster',
+        epsilon: 2,
+        minSamples: 2,
+        preserveIdentity: true,
+        createPayload: cl => ({ clusterId: cl.id, count: cl.count, centroid: cl.centroid }),
+    }));
+    const firstClusterId = [...wIdCl.searchContent(undefined, { kind: 'cluster' })][0]!.id;
+    wIdCl.putPoint([0, 1, 0], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    const updatedClusters = [...wIdCl.searchContent(undefined, { kind: 'cluster' })];
+    assert(updatedClusters.length === 1 && updatedClusters[0]!.id === firstClusterId && updatedClusters[0]!.content.count === 3);
+    stopIdCl();
+
+    // 9. propagation terminal dispose & finite weight guard
+    const wProp = makeWorld();
+    const p1 = wProp.putPoint([0, 0, 0], { kind: 'item' }, { label: 'p1' });
+    const pNet = createPropagation(wProp, {
+        neighbors: () => [{ id: p1, weight: Number.POSITIVE_INFINITY }],
+    });
+    pNet.activate(p1, 1);
+    let propWeightThrew = false;
+    try { pNet.step(); } catch { propWeightThrew = true; }
+    assert(propWeightThrew);
+    pNet.dispose();
+    let propDisposedThrew = false;
+    try { pNet.step(); } catch { propDisposedThrew = true; }
+    assert(propDisposedThrew);
 });
 
 console.log(`\n${passed} extension tests passed.`);

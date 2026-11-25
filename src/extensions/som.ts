@@ -89,6 +89,15 @@ export function createSOM<
     const radiusDecay = options.radiusDecay ?? 0;
     const metric = options.metric ?? 'euclidean';
 
+    if (!Number.isFinite(baseRate) || baseRate < 0) throw RangeError('learningRate must be finite and nonnegative');
+    if (!Number.isFinite(baseRadius) || baseRadius <= 0) throw RangeError('neighbourhoodRadius must be finite and positive');
+    if (!Number.isFinite(learningDecay) || learningDecay < 0) throw RangeError('learningDecay must be finite and nonnegative');
+    if (!Number.isFinite(radiusDecay) || radiusDecay < 0) throw RangeError('radiusDecay must be finite and nonnegative');
+
+    // Validate that the entire lattice fits within the world's signed integer coordinate domain.
+    world.point(origin);
+    world.point([origin[0] + nx - 1, origin[1] + ny - 1, origin[2] + nz - 1]);
+
     let prng = (options.seed ?? 0x5eed1234) >>> 0;
     const nextRand = () => {
         prng = (Math.imul(prng, 1664525) + 1013904223) >>> 0;
@@ -149,6 +158,11 @@ export function createSOM<
     const findBmu = (vector: Vector): { ix: number; iy: number; iz: number; distance: number } => {
         if (vector.length !== dim) {
             throw RangeError(`Expected vector of length ${dim}, got ${vector.length}`);
+        }
+        for (let d = 0; d < dim; d++) {
+            if (!Number.isFinite(vector[d])) {
+                throw RangeError(`Vector component at index ${d} must be finite`);
+            }
         }
         let bestIx = 0, bestIy = 0, bestIz = 0;
         let bestDist = Infinity;
@@ -269,16 +283,23 @@ export function createSOM<
         },
         dispose(removePersisted = false) {
             if (!removePersisted) return;
-            world.batch(() => {
-                for (let i = 0; i < nodeIds.length; i++) {
-                    const nid = nodeIds[i];
-                    if (nid && world.hasContent(nid)) {
-                        world.detachAll(nid);
-                        world.removeContent(nid);
+            try {
+                world.batch(() => {
+                    for (let i = 0; i < nodeIds.length; i++) {
+                        const nid = nodeIds[i];
+                        if (nid && world.hasContent(nid)) {
+                            world.detachAll(nid);
+                            world.removeContent(nid);
+                        }
                     }
-                    nodeIds[i] = undefined;
+                });
+                nodeIds.fill(undefined);
+            } catch (err) {
+                if (err instanceof EventDispatchError) {
+                    nodeIds.fill(undefined);
                 }
-            });
+                throw err;
+            }
         },
     };
 }

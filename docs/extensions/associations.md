@@ -47,6 +47,7 @@ const associations = createAssociations(world, {
 | `pruneAtMin` | `true` | Remove edges whose weight drops to `<= minWeight` |
 | `autoDecay` | `false` | Subscribe to `world.on('update', dt => decay(dt))` |
 
-### Lifecycle Separation
+### Lifecycle & Transaction Boundaries
 
-`associations.dispose(removePersisted = false)` unsubscribes any `update` listener while keeping persisted Substratum content intact unless you explicitly pass `true`.
+- `associations.dispose(removePersisted = false)` unsubscribes any `update` listener while keeping persisted Substratum content intact unless you explicitly pass `true`.
+- Private edge weights roll back if the manager's own `world.batch()` fails, but will **not** automatically roll back if an enclosing caller `world.batch()` throws after `reinforce()`, `weaken()`, `decay()`, or `clear()` has already returned.

@@ -57,3 +57,5 @@ world.update(0.016);
 | `radius` | `16` | Radius used by the default spatial neighbour resolver |
 | `neighbors` | spatial radius | Custom `(id, world) => NeighborLink[]` resolver |
 | `onStep` | — | Hook called with `(activeMap, iteration)` after each step |
+
+Call `network.dispose()` when finished to detach any internal spatial cache listener and release retained state; `dispose()` is terminal (`activate()`, `step()`, and `run()` throw after disposal).

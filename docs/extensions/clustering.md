@@ -55,3 +55,5 @@ const dispose = world.use(createClusterPlugin({
 ```
 
 By default `removeOnDispose` is `false`, so uninstalling the plugin stops automatic updates without deleting previously materialised cluster records.
+
+Pass `preserveIdentity: true` (and optional `identityThreshold`, default `0.5`) to match clusters across recomputations by Jaccard membership similarity and update matched clusters in place via `moveContent()` and `setContent()` instead of recreating them.
