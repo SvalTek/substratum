@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
@@ -72,3 +72,81 @@ jobs:
 
       - name: Build VitePress documentation
         run: bun run docs:build
+
+      - name: Stage rolling release assets
+        if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        run: |
+          mkdir -p release-assets
+          TGZ="$(npm pack --pack-destination release-assets | tail -n 1)"
+          mv "release-assets/$TGZ" release-assets/substratum.tgz
+          cp dist/substratum.esm.js release-assets/substratum.esm.js
+          cp dist/substratum.esm.js.map release-assets/substratum.esm.js.map
+          (cd release-assets && sha256sum substratum.esm.js substratum.esm.js.map substratum.tgz > SHA256SUMS.txt)
+          ls -la release-assets
+
+      - name: Upload rolling release assets
+        if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolling-release-assets
+          path: release-assets/
+          retention-days: 1
+
+  publish-rolling:
+    name: Publish Rolling Release (${{ github.ref_name == 'main' && 'stable' || 'testing' }})
+    needs: verify
+    if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: rolling-release-assets
+          path: release-assets
+
+      - name: Resolve rolling channel
+        id: channel
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "tag=stable" >> "$GITHUB_OUTPUT"
+            echo "title=Stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=testing" >> "$GITHUB_OUTPUT"
+            echo "title=Testing (develop)" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update rolling tag
+        run: |
+          git tag -f "${{ steps.channel.outputs.tag }}" "${{ github.sha }}"
+          git push -f origin "${{ steps.channel.outputs.tag }}"
+
+      - name: Publish rolling GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.channel.outputs.tag }}
+          name: ${{ steps.channel.outputs.title }}
+          body: |
+            Rolling **${{ steps.channel.outputs.tag }}** release automatically verified and published from `${{ github.ref_name }}` (`${{ github.sha }}`).
+
+            ### Attached Artifacts
+            - `substratum.esm.js` — standalone single-file ESM bundle (zero runtime dependencies)
+            - `substratum.esm.js.map` — source map
+            - `substratum.tgz` — npm package tarball (compiled ESM modules + `.d.ts` declarations)
+            - `SHA256SUMS.txt` — SHA-256 checksums
+          prerelease: ${{ steps.channel.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.channel.outputs.make_latest }}
+          files: |
+            release-assets/substratum.esm.js
+            release-assets/substratum.esm.js.map
+            release-assets/substratum.tgz
+            release-assets/SHA256SUMS.txt
