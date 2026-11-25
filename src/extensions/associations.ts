@@ -1,4 +1,5 @@
 import {
+    EventDispatchError,
     type ContentId,
     type Dispose,
     type Kind,
@@ -78,14 +79,22 @@ export function createAssociations<
     const directed = options.directed ?? false;
     const pruneAtMin = options.pruneAtMin ?? true;
 
-    if (minWeight > maxWeight) throw RangeError('minWeight must be <= maxWeight');
+    if (!Number.isFinite(learningRate) || learningRate < 0) {
+        throw RangeError('learningRate must be finite and nonnegative');
+    }
+    if (!Number.isFinite(decayRate) || decayRate < 0) {
+        throw RangeError('decayRate must be finite and nonnegative');
+    }
+    if (!Number.isFinite(minWeight) || !Number.isFinite(maxWeight) || minWeight > maxWeight) {
+        throw RangeError('minWeight and maxWeight must be finite with minWeight <= maxWeight');
+    }
 
     const edges = new Map<string, StoredEdge>();
     const adjacency = new Map<ContentId, Set<string>>();
 
     const canonicalPair = (a: ContentId, b: ContentId): readonly [ContentId, ContentId, string] => {
-        if (directed || a <= b) return [a, b, `${a}\0${b}`];
-        return [b, a, `${b}\0${a}`];
+        if (directed || a <= b) return [a, b, JSON.stringify([a, b])];
+        return [b, a, JSON.stringify([b, a])];
     };
 
     const clamp = (w: number): number => Math.min(maxWeight, Math.max(minWeight, w));
@@ -144,25 +153,71 @@ export function createAssociations<
         if (removeContent) deletePersisted(edge);
     };
 
+    const restoreSnapshot = (
+        prevEdges: Array<[string, StoredEdge | undefined]>,
+    ) => {
+        for (let i = 0; i < prevEdges.length; i++) {
+            const [key, prev] = prevEdges[i]!;
+            const cur = edges.get(key);
+            if (!prev) {
+                if (cur) {
+                    edges.delete(key);
+                    unindexKey(cur.source, key);
+                    unindexKey(cur.target, key);
+                }
+            } else {
+                if (!cur) {
+                    edges.set(key, prev);
+                    indexKey(prev.source, key);
+                    indexKey(prev.target, key);
+                } else {
+                    cur.weight = prev.weight;
+                    cur.contentId = prev.contentId;
+                }
+            }
+        }
+    };
+
+    const runWithRollback = (
+        snapshots: Array<[string, StoredEdge | undefined]>,
+        fn: () => void,
+    ) => {
+        try {
+            world.batch(fn);
+        } catch (err) {
+            if (!(err instanceof EventDispatchError)) {
+                restoreSnapshot(snapshots);
+            }
+            throw err;
+        }
+    };
+
     const adjust = (a: ContentId, b: ContentId, delta: number): number => {
+        if (!Number.isFinite(delta)) throw RangeError('adjustment amount must be finite');
         const [source, target, key] = canonicalPair(a, b);
-        let edge = edges.get(key);
-        const next = clamp((edge?.weight ?? minWeight) + delta);
+        const existing = edges.get(key);
+        const snap: Array<[string, StoredEdge | undefined]> = [
+            [key, existing ? { ...existing } : undefined],
+        ];
+        const next = clamp((existing?.weight ?? minWeight) + delta);
         if (pruneAtMin && next <= minWeight) {
-            if (edge) {
-                world.batch(() => removeEdge(key, edge!, true));
+            if (existing) {
+                runWithRollback(snap, () => removeEdge(key, existing, true));
             }
             return minWeight;
         }
-        if (!edge) {
-            edge = { source, target, weight: next };
-            edges.set(key, edge);
-            indexKey(source, key);
-            indexKey(target, key);
-        } else {
-            edge.weight = next;
-        }
-        world.batch(() => syncPersisted(edge!));
+        let edge = existing;
+        runWithRollback(snap, () => {
+            if (!edge) {
+                edge = { source, target, weight: next };
+                edges.set(key, edge);
+                indexKey(source, key);
+                indexKey(target, key);
+            } else {
+                edge.weight = next;
+            }
+            syncPersisted(edge);
+        });
         return next;
     };
 
@@ -172,10 +227,12 @@ export function createAssociations<
 
     const manager: AssociationsManager = {
         reinforce(a, b, amount = learningRate) {
-            return adjust(a, b, Math.abs(amount));
+            if (!Number.isFinite(amount) || amount < 0) throw RangeError('amount must be finite and nonnegative');
+            return adjust(a, b, amount);
         },
         weaken(a, b, amount = learningRate) {
-            return adjust(a, b, -Math.abs(amount));
+            if (!Number.isFinite(amount) || amount < 0) throw RangeError('amount must be finite and nonnegative');
+            return adjust(a, b, -amount);
         },
         weight(a, b) {
             const [, , key] = canonicalPair(a, b);
@@ -206,7 +263,9 @@ export function createAssociations<
             if (!Number.isFinite(dt) || dt < 0) throw RangeError('dt must be finite and nonnegative');
             const drop = decayRate * dt;
             if (drop === 0 || !edges.size) return;
-            world.batch(() => {
+            const snap: Array<[string, StoredEdge | undefined]> = [...edges.entries()]
+                .map(([k, e]) => [k, { ...e }]);
+            runWithRollback(snap, () => {
                 for (const [key, edge] of [...edges.entries()]) {
                     const next = clamp(edge.weight - drop);
                     if (pruneAtMin && next <= minWeight) {
@@ -227,7 +286,9 @@ export function createAssociations<
             }));
         },
         clear(removePersisted = false) {
-            world.batch(() => {
+            const snap: Array<[string, StoredEdge | undefined]> = [...edges.entries()]
+                .map(([k, e]) => [k, { ...e }]);
+            runWithRollback(snap, () => {
                 for (const [key, edge] of [...edges.entries()]) {
                     removeEdge(key, edge, removePersisted);
                 }

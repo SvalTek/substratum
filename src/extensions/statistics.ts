@@ -193,7 +193,7 @@ export function analyse<
     }
 
     if (options.groupBy && (metrics.has('entropy') || metrics.has('dominance'))) {
-        const groups: Record<string, number> = {};
+        const groups = Object.create(null) as Record<string, number>;
         for (let i = 0; i < hits.length; i++) {
             const key = String(options.groupBy(hits[i]!));
             groups[key] = (groups[key] ?? 0) + 1;
@@ -248,10 +248,7 @@ export function observeStatistics<
     region: Region,
     options: ObserveStatisticsOptions<C, M, K>,
 ): Dispose {
-    if (options.emitInitial) {
-        options.onChange(analyse(world, region, options));
-    }
-    return world.on(
+    const off = world.on(
         'spatial:change',
         event => {
             const relevant = event.changes.some(c => {
@@ -263,4 +260,13 @@ export function observeStatistics<
         },
         { region },
     );
+    if (options.emitInitial) {
+        try {
+            options.onChange(analyse(world, region, options));
+        } catch (error) {
+            off();
+            throw error;
+        }
+    }
+    return off;
 }

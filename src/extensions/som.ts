@@ -1,4 +1,5 @@
 import {
+    EventDispatchError,
     type ContentId,
     type Kind,
     type Metadata,
@@ -187,7 +188,8 @@ export function createSOM<
             const minZ = Math.max(0, bmu.iz - rCeil);
             const maxZ = Math.min(nz - 1, bmu.iz + rCeil);
 
-            const updated: number[] = [];
+            const updated: Array<{ idx: number; prev: Float64Array }> = [];
+            const persistNodes = Boolean(options.nodeKind && options.createNodePayload);
             for (let ix = minX; ix <= maxX; ix++) {
                 for (let iy = minY; iy <= maxY; iy++) {
                     for (let iz = minZ; iz <= maxZ; iz++) {
@@ -199,26 +201,37 @@ export function createSOM<
                         const influence = Math.exp(-d2 / twoSigmaSq) * alpha;
                         const idx = nodeIndex(ix, iy, iz);
                         const w = weights[idx]!;
+                        const prev = persistNodes ? w.slice() : w;
                         for (let d = 0; d < dim; d++) {
                             w[d]! += influence * (vector[d]! - w[d]!);
                         }
-                        updated.push(idx);
+                        if (persistNodes) updated.push({ idx, prev });
                     }
                 }
             }
 
-            if (options.nodeKind && options.createNodePayload && updated.length) {
-                world.batch(() => {
-                    for (let i = 0; i < updated.length; i++) {
-                        const idx = updated[i]!;
-                        const nid = nodeIds[idx];
-                        if (!nid || !world.hasContent(nid)) continue;
-                        const iz = idx % nz;
-                        const iy = Math.floor(idx / nz) % ny;
-                        const ix = Math.floor(idx / (ny * nz));
-                        world.setContent(nid, options.createNodePayload!(Array.from(weights[idx]!), worldCoords(ix, iy, iz)));
+            if (persistNodes && updated.length) {
+                try {
+                    world.batch(() => {
+                        for (let i = 0; i < updated.length; i++) {
+                            const { idx } = updated[i]!;
+                            const nid = nodeIds[idx];
+                            if (!nid || !world.hasContent(nid)) continue;
+                            const iz = idx % nz;
+                            const iy = Math.floor(idx / nz) % ny;
+                            const ix = Math.floor(idx / (ny * nz));
+                            world.setContent(nid, options.createNodePayload!(Array.from(weights[idx]!), worldCoords(ix, iy, iz)));
+                        }
+                    });
+                } catch (err) {
+                    if (!(err instanceof EventDispatchError)) {
+                        for (let i = 0; i < updated.length; i++) {
+                            weights[updated[i]!.idx]!.set(updated[i]!.prev);
+                        }
+                        stepCount = t;
                     }
-                });
+                    throw err;
+                }
             }
 
             return {
@@ -247,7 +260,10 @@ export function createSOM<
             const ix = coords[0] - origin[0];
             const iy = coords[1] - origin[1];
             const iz = coords[2] - origin[2];
-            if (ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz) return undefined;
+            if (
+                !Number.isInteger(ix) || !Number.isInteger(iy) || !Number.isInteger(iz)
+                || ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz
+            ) return undefined;
             const w = weights[nodeIndex(ix, iy, iz)];
             return w ? Array.from(w) : undefined;
         },

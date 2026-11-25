@@ -1,6 +1,6 @@
 # Spatial Model
 
-Substratum operates on a **signed 3D integer lattice**. Every coordinate on X, Y, and Z is an integer (by default 16-bit signed: `[-32768, 32767]`, configurable from `1` to `32` bits via `{ bits }`).
+Substratum operates on a **signed 3D integer lattice**. Stored cell coordinates on X, Y, and Z are integers (by default 16-bit signed: `[-32768, 32767]`, configurable from `1` to `32` bits via `{ bits }`), while distance-query origins (`nearest`, `radius`) may be fractional `Vec3` coordinates.
 
 ## Ways to Describe a `Region`
 

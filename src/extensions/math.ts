@@ -163,13 +163,13 @@ export function softmaxWeights(scores: readonly number[], temperature = 1): numb
     if (!scores.length) return [];
     let max = -Infinity;
     for (let i = 0; i < scores.length; i++) {
-        const s = scores[i]! / temperature;
+        const s = scores[i]!;
         if (s > max) max = s;
     }
     const exps = new Array<number>(scores.length);
     let sum = 0;
     for (let i = 0; i < scores.length; i++) {
-        const e = Math.exp(scores[i]! / temperature - max);
+        const e = Math.exp((scores[i]! - max) / temperature);
         exps[i] = e;
         sum += e;
     }
@@ -349,30 +349,27 @@ export function mutualInformation(
 
     const xCounts = new Map<string | number, number>();
     const yCounts = new Map<string | number, number>();
-    const joint = new Map<string, number>();
+    const joint = new Map<string | number, Map<string | number, number>>();
 
     for (let i = 0; i < n; i++) {
         const x = xs[i]!;
         const y = ys[i]!;
         xCounts.set(x, (xCounts.get(x) ?? 0) + 1);
         yCounts.set(y, (yCounts.get(y) ?? 0) + 1);
-        const key = `${typeof x}:${String(x)}\0${typeof y}:${String(y)}`;
-        joint.set(key, (joint.get(key) ?? 0) + 1);
+        let row = joint.get(x);
+        if (!row) joint.set(x, row = new Map());
+        row.set(y, (row.get(y) ?? 0) + 1);
     }
 
     const logBase = Math.log(base);
     let mi = 0;
-    for (let i = 0; i < n; i++) {
-        const x = xs[i]!;
-        const y = ys[i]!;
-        const key = `${typeof x}:${String(x)}\0${typeof y}:${String(y)}`;
-        const jc = joint.get(key);
-        if (jc === undefined) continue;
-        joint.delete(key); // process each unique pair once
-        const pxy = jc / n;
+    for (const [x, row] of joint) {
         const px = xCounts.get(x)! / n;
-        const py = yCounts.get(y)! / n;
-        mi += pxy * (Math.log(pxy / (px * py)) / logBase);
+        for (const [y, jc] of row) {
+            const pxy = jc / n;
+            const py = yCounts.get(y)! / n;
+            mi += pxy * (Math.log(pxy / (px * py)) / logBase);
+        }
     }
     return Math.max(0, mi);
 }

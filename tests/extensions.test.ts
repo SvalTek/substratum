@@ -22,6 +22,7 @@ import {
     normalizeVector,
     scale,
     softmax,
+    softmaxWeights,
     stdDev,
     subtract,
     variance,
@@ -150,7 +151,7 @@ test('attention: distance-weighted scoring, softmax, content scope, and aggregat
     assert(results[0]!.weight > results[1]!.weight);
 
     const agg = weightedAggregate(results, r => r.hit.content.vector!);
-    assert(agg.length === 2);
+    assert(Array.isArray(agg) && agg.length === 2);
     assert(agg[0]! > 10 && agg[0]! < 40);
 
     // Multi-placement identity-level combination
@@ -352,6 +353,105 @@ test('propagation: step-based spreading activation and update plugin', () => {
     dispose();
     net.reset();
     assert(net.getActive().size === 0);
+    net.dispose();
+});
+
+test('review regressions: overflow, prototype keys, rollbacks, and cleanup', () => {
+    // 1. softmaxWeights overflow guard
+    const smBig = softmaxWeights([1e308, 1e308], 0.5);
+    approx(smBig[0]!, 0.5);
+    approx(smBig[1]!, 0.5);
+
+    // 2. mutualInformation delimiter collision guard
+    approx(mutualInformation(['a', 'a\0string:b'], ['b\0string:c', 'c']), 1);
+
+    // 3. statistics prototype-safe groupBy & observeStatistics initial mutation
+    const wStats = makeWorld();
+    wStats.putPoint([0, 0, 0], { kind: 'observation' }, { category: '__proto__', confidence: 1 });
+    wStats.putPoint([1, 0, 0], { kind: 'observation' }, { category: 'constructor', confidence: 1 });
+    const protoStats = analyse(wStats, undefined, {
+        kind: 'observation',
+        groupBy: h => h.content.category,
+        metrics: ['count', 'entropy', 'dominance'],
+    });
+    approx(protoStats.dominance!, 0.5);
+    approx(protoStats.entropy!, 1);
+
+    const wObs = makeWorld();
+    const obsEvents: number[] = [];
+    const stopObs = observeStatistics(wObs, [[-5, 5], [-5, 5], [-5, 5]], {
+        kind: 'observation',
+        emitInitial: true,
+        onChange: s => {
+            obsEvents.push(s.count);
+            if (s.count === 0) {
+                wObs.putPoint([0, 0, 0], { kind: 'observation' }, { category: 'init', confidence: 1 });
+            }
+        },
+    });
+    assert(obsEvents.length === 2 && obsEvents[0] === 0 && obsEvents[1] === 1);
+    stopObs();
+
+    // 4. clustering tiny epsilon & plugin excluding clusterKind when kind omitted
+    const wCl = makeWorld();
+    wCl.putPoint([1, 1, 1], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    const tinyRes = dbscan(wCl, { epsilon: 1e-20, minSamples: 2 });
+    assert(tinyRes.clusters.length === 0 && tinyRes.noise.length === 1);
+
+    wCl.putPoint([1, 1, 2], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    const stopCl = wCl.use(createClusterPlugin<C, M, E, 'observation', 'cluster'>({
+        clusterKind: 'cluster',
+        epsilon: 2,
+        minSamples: 2,
+        createPayload: cl => ({ clusterId: cl.id, count: cl.count, centroid: cl.centroid }),
+    }));
+    const third = wCl.putPoint([1, 2, 1], { kind: 'observation' }, { category: 'a', confidence: 1 });
+    const mat = [...wCl.searchContent(undefined, { kind: 'cluster' })];
+    assert(mat.length === 1 && mat[0]!.content.count === 3);
+    wCl.detachAll(third);
+    stopCl();
+
+    // 5. associations NaN guard & persistence rollback
+    const wAssoc = makeWorld();
+    const a1 = wAssoc.createContent('item', { label: '1' });
+    const a2 = wAssoc.createContent('item', { label: '2' });
+    let shouldFail = true;
+    const assoc = createAssociations(wAssoc, {
+        kind: 'edge',
+        createPayload: e => {
+            if (shouldFail) throw Error('boom');
+            return { source: e.source, target: e.target, weight: e.weight };
+        },
+    });
+    let threw = false;
+    try { assoc.reinforce(a1, a2, 0.3); } catch { threw = true; }
+    assert(threw && assoc.weight(a1, a2) === 0);
+    shouldFail = false;
+    let nanThrew = false;
+    try { assoc.reinforce(a1, a2, Number.NaN); } catch { nanThrew = true; }
+    assert(nanThrew);
+
+    // 6. som fractional weightsAt & rollback on createNodePayload throw
+    const wSom = makeWorld();
+    let failSom = false;
+    const som = createSOM(wSom, {
+        dimensions: [1, 1, 1],
+        inputDimensions: 1,
+        learningRate: 1,
+        seed: 1,
+        nodeKind: 'somNode',
+        createNodePayload: (weights, coords) => {
+            if (failSom) throw Error('som persist fail');
+            return { coords, weights };
+        },
+    });
+    assert(som.weightsAt([0.5, 0, 0]) === undefined);
+    const beforeW = som.weightsAt([0, 0, 0])![0]!;
+    failSom = true;
+    let somThrew = false;
+    try { som.train([42]); } catch { somThrew = true; }
+    assert(somThrew);
+    approx(som.weightsAt([0, 0, 0])![0]!, beforeW);
 });
 
 console.log(`\n${passed} extension tests passed.`);

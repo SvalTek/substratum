@@ -38,6 +38,7 @@ export interface PropagationNetwork {
     getActive(minActivation?: number): ReadonlyMap<ContentId, number>;
     getActivation(id: ContentId): number;
     reset(): void;
+    dispose(): void;
 }
 
 function applyActivation(fn: ActivationFn, x: number): number {
@@ -73,7 +74,7 @@ export function createPropagation<
     if (threshold < 0) throw RangeError('threshold must be nonnegative');
 
     const neighborCache = new Map<ContentId, readonly NeighborLink[]>();
-    world.on('spatial:change', () => {
+    const offSpatial = world.on('spatial:change', () => {
         neighborCache.clear();
     });
 
@@ -185,6 +186,10 @@ export function createPropagation<
         reset() {
             state.clear();
             iteration = 0;
+        },
+        dispose() {
+            offSpatial();
+            neighborCache.clear();
         },
     };
 }

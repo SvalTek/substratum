@@ -50,7 +50,7 @@ world.update(0.016);
 | Option | Default | Description |
 | --- | --- | --- |
 | `decay` | `0.1` | Fraction of retained activation decayed each step (`[0, 1]`) |
-| `threshold` | `0.05` | Minimum `|activation|` retained after a step |
+| `threshold` | `0.05` | Minimum `\|activation\|` retained after a step |
 | `maxIterations` | `32` | Default iteration cap for `run()` |
 | `aggregation` | `'sum'` | How incoming neighbour messages are combined: `'sum' \| 'mean' \| 'max'` |
 | `activation` | `'tanh'` | Transfer function: `'tanh' \| 'relu' \| 'sigmoid' \| 'linear'` or custom `(x) => number` |

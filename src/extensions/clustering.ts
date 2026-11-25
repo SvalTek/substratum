@@ -1,5 +1,6 @@
 import {
     ALL,
+    EventDispatchError,
     type Address,
     type Bounds,
     type ContentId,
@@ -180,11 +181,15 @@ export function dbscan<
         const gy = Math.floor(py / cellSize);
         const gz = Math.floor(pz / cellSize);
         const neighbors: number[] = [];
+        const seenBuckets = new Set<string>();
         const span = eps > 0 ? 1 : 0;
         for (let dx = -span; dx <= span; dx++) {
             for (let dy = -span; dy <= span; dy++) {
                 for (let dz = -span; dz <= span; dz++) {
-                    const bucket = grid.get(`${gx + dx},${gy + dy},${gz + dz}`);
+                    const bk = `${gx + dx},${gy + dy},${gz + dz}`;
+                    if (seenBuckets.has(bk)) continue;
+                    seenBuckets.add(bk);
+                    const bucket = grid.get(bk);
                     if (!bucket) continue;
                     for (let b = 0; b < bucket.length; b++) {
                         const j = bucket[b]!;
@@ -202,7 +207,6 @@ export function dbscan<
         return neighbors;
     };
 
-    const clusters: Cluster<C, M, K>[] = [];
     let clusterId = 0;
 
     for (let i = 0; i < n; i++) {
@@ -233,11 +237,20 @@ export function dbscan<
             }
             if (assigned[j] === -1) assigned[j] = cid;
         }
+    }
 
-        const members: ClusterMember<C, M, K>[] = [];
-        for (let idx = 0; idx < n; idx++) {
-            if (assigned[idx] === cid) members.push(items[idx]!);
-        }
+    const membersByCluster = new Array<ClusterMember<C, M, K>[]>(clusterId);
+    for (let c = 0; c < clusterId; c++) membersByCluster[c] = [];
+    const noise: ClusterMember<C, M, K>[] = [];
+    for (let i = 0; i < n; i++) {
+        const cid = assigned[i]!;
+        if (cid === -1) noise.push(items[i]!);
+        else membersByCluster[cid]!.push(items[i]!);
+    }
+
+    const clusters: Cluster<C, M, K>[] = [];
+    for (let cid = 0; cid < clusterId; cid++) {
+        const members = membersByCluster[cid]!;
         const pts = members.map(m => m.point);
         const bounds = computeBounds(pts);
         const centroid = computeCentroid(pts);
@@ -254,11 +267,6 @@ export function dbscan<
             count: members.length,
             density: vol > 0 ? members.length / vol : 0,
         }));
-    }
-
-    const noise: ClusterMember<C, M, K>[] = [];
-    for (let i = 0; i < n; i++) {
-        if (assigned[i] === -1) noise.push(items[i]!);
     }
 
     return Object.freeze({
@@ -302,40 +310,54 @@ export function createClusterPlugin<
             if (syncing) return;
             syncing = true;
             try {
-                const { clusters } = dbscan(world, options);
-                world.batch(() => {
-                    for (let i = 0; i < activeClusterIds.length; i++) {
-                        const id = activeClusterIds[i]!;
-                        if (world.hasContent(id)) {
-                            world.detachAll(id);
-                            world.removeContent(id);
-                        }
-                    }
-                    activeClusterIds = [];
-                    for (let i = 0; i < clusters.length; i++) {
-                        const c = clusters[i]!;
-                        const pos: Vec3 = [
-                            Math.round(c.centroid[0]),
-                            Math.round(c.centroid[1]),
-                            Math.round(c.centroid[2]),
-                        ];
-                        const meta = options.createMetadata
-                            ? options.createMetadata(c)
-                            : ({ kind: options.clusterKind } as unknown as Metadata<M, CK>);
-                        const id = world.putPoint(
-                            pos,
-                            { ...meta, kind: options.clusterKind } as Metadata<M, CK> & { readonly kind: CK },
-                            options.createPayload(c),
-                        );
-                        activeClusterIds.push(id);
-                    }
+                const { clusters } = dbscan(world, {
+                    ...options,
+                    filter: meta =>
+                        (meta.kind as string) !== (options.clusterKind as string)
+                        && (!options.filter || options.filter(meta)),
                 });
+                const nextIds: ContentId<CK>[] = [];
+                try {
+                    world.batch(() => {
+                        for (let i = 0; i < activeClusterIds.length; i++) {
+                            const id = activeClusterIds[i]!;
+                            if (world.hasContent(id)) {
+                                world.detachAll(id);
+                                world.removeContent(id);
+                            }
+                        }
+                        for (let i = 0; i < clusters.length; i++) {
+                            const c = clusters[i]!;
+                            const pos: Vec3 = [
+                                Math.round(c.centroid[0]),
+                                Math.round(c.centroid[1]),
+                                Math.round(c.centroid[2]),
+                            ];
+                            const meta = options.createMetadata
+                                ? options.createMetadata(c)
+                                : ({ kind: options.clusterKind } as unknown as Metadata<M, CK>);
+                            const id = world.putPoint(
+                                pos,
+                                { ...meta, kind: options.clusterKind } as Metadata<M, CK> & { readonly kind: CK },
+                                options.createPayload(c),
+                            );
+                            nextIds.push(id);
+                        }
+                    });
+                    activeClusterIds = nextIds;
+                } catch (err) {
+                    if (err instanceof EventDispatchError) {
+                        activeClusterIds = nextIds;
+                    }
+                    throw err;
+                }
             } finally {
                 syncing = false;
             }
         };
 
         recompute();
+        const watchRegion = options.multiPlacement === 'centroid' ? ALL : (options.region ?? ALL);
         const off: Dispose = world.on(
             'spatial:change',
             event => {
@@ -346,7 +368,7 @@ export function createClusterPlugin<
                 });
                 if (relevant) recompute();
             },
-            { region: options.region ?? ALL },
+            { region: watchRegion },
         );
 
         return () => {

@@ -223,7 +223,7 @@ export function attend<
     }));
 }
 
-/** Compute a weighted sum over scalar or vector values extracted from attention results. */
+/** Compute a weighted sum over scalar or vector values extracted from attention results. Returns 0 when results is empty. */
 export function weightedAggregate<C extends object, M extends object, K extends Kind<C>>(
     results: readonly AttentionResult<C, M, K>[],
     value: (result: AttentionResult<C, M, K>) => number,
@@ -231,7 +231,7 @@ export function weightedAggregate<C extends object, M extends object, K extends 
 export function weightedAggregate<C extends object, M extends object, K extends Kind<C>>(
     results: readonly AttentionResult<C, M, K>[],
     value: (result: AttentionResult<C, M, K>) => Vector,
-): number[];
+): number[] | 0;
 export function weightedAggregate<C extends object, M extends object, K extends Kind<C>>(
     results: readonly AttentionResult<C, M, K>[],
     value: (result: AttentionResult<C, M, K>) => number | Vector,

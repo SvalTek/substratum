@@ -80,15 +80,26 @@ With those interfaces in place:
 
 ## Runtimes & Installation
 
+Install `@svaltek/substratum` in your project:
+
+```sh
+bun add @svaltek/substratum
+# or: npm install @svaltek/substratum
+```
+
 Substratum has zero runtime dependencies and uses standard ES2022 APIs (`globalThis.crypto.randomUUID()` by default, overridable via `idFactory`).
 
 | Runtime | How to Run |
 | --- | --- |
 | **Bun** | Imports `@svaltek/substratum` TypeScript source directly |
-| **Node.js 22.6+** | Runs checkout source with `node --experimental-strip-types`; installed consumers use `@svaltek/substratum/bundle` |
+| **Node.js 22.6+** | Runs TypeScript source with `node --experimental-strip-types`; installed consumers use `@svaltek/substratum/bundle` |
 | **Node.js 20+** | Imports the prebuilt ESM bundle `@svaltek/substratum/bundle` |
 | **Deno** | Imports TypeScript source directly |
 | **Browsers** | Uses your bundler or `@svaltek/substratum/bundle` |
+
+### Repository Development Commands
+
+If you are working from a local checkout of the repository:
 
 ```sh
 bun install
