@@ -1,49 +1,58 @@
 # Getting Started
 
-Substratum is a synchronous, in-memory, reactive spatial runtime with zero runtime dependencies. It combines a typed shared content store, dual region/proximity spatial indexes, transactional middleware, and region-scoped events.
+## What is Substratum?
 
-> **Core idea:** The indexing structures are implementation details. The public abstraction is a programmable spatial environment.
+**Substratum** is a synchronous, in-memory **3D spatial runtime** for TypeScript and JavaScript. Think of it as a shared 3D integer grid combined with a typed object store and a region-aware event bus.
 
-## Runtimes & Installation
+You use it when multiple independent parts of your program—simulation agents, safety rules, sensors, analytics, UI—need to read, write, query, and react to the same 3D space without coupling directly to one another.
 
-Substratum uses standard TypeScript and ES2022 APIs (`globalThis.crypto.randomUUID()` by default, overridable via `idFactory`).
+Substratum gives you three building blocks:
 
-| Runtime | Source / Build Usage |
-| --- | --- |
-| **Bun** | Imports the package root TypeScript source directly |
-| **Node.js 22.6+** | Runs checkout source via `node --experimental-strip-types`; installed package consumers use `@svaltek/substratum/bundle` because Node refuses TypeScript under `node_modules` |
-| **Node.js 20+** | Imports the optional single-file ESM bundle from `@svaltek/substratum/bundle` |
-| **Deno** | Runs TypeScript source directly |
-| **Browsers** | Uses an application build tool or imports the optional ESM bundle |
+1. **A 3D integer space** where you place items at points `[x, y, z]` or across rectangular boxes.
+2. **Fast spatial + attribute queries** (`search`, `nearest`, `radius`) that find what is inside a region or near a point.
+3. **Synchronous reactivity & rules** (`on`, `middleware`, `batch`) so listeners react to spatial changes and rules can transform or veto invalid writes before they commit.
 
-### Local development commands
+## Your First World
 
-```sh
-bun install
-bun run typecheck   # strict TypeScript + negative type contract tests
-bun run test        # typecheck + portable runtime & differential test suite
-bun run example     # run examples/warehouse.ts
-bun run benchmark   # run microbenchmarks
-bun run build:bundle # optional: emit dist/substratum.esm.js + sourcemap
+You don't need any configuration to start. Create a `Substratum` instance, place an item at `[x, y, z]`, query nearby items, and update it:
+
+```ts
+import { Substratum } from '@svaltek/substratum';
+
+const world = new Substratum();
+
+// Place a resource at [40, 0, 24]
+const tree = world.putPoint(
+    [40, 0, 24],
+    { kind: 'resource', tags: ['wood'] },
+    { name: 'Oak', quantity: 120 },
+);
+
+// Find the closest item within 50 units of [0, 0, 0]
+for (const hit of world.radiusContent([0, 0, 0], 50, { kind: 'resource' })) {
+    console.log(hit.distance, hit.content);
+}
+
+// Update the resource's payload in place
+world.setContent(tree, { name: 'Oak', quantity: 110 });
 ```
 
-Node.js 22+ equivalents:
+Notice the three arguments to `putPoint(xyz, metadata, payload)`:
+- `xyz`: where to place it (`[40, 0, 24]`).
+- `metadata`: small searchable labels (`kind`, `tags`, and any custom fields).
+- `payload`: the domain object itself (`{ name: 'Oak', quantity: 120 }`).
 
-```sh
-npm install
-npm run test:node
-node --experimental-strip-types examples/warehouse.ts
-```
+Next, [Core Concepts](/guide/core-concepts) explains why Substratum separates **content**, **attachments**, and **cells**.
 
-## Quickstart
+## Adding Compile-Time Type Safety
 
-Define three compile-time schema interfaces — **content** (kind → payload), shared **attachment metadata**, and custom **events** — then construct a `Substratum` instance:
+Once your domain grows, you can pass three optional TypeScript interfaces to `new Substratum<Content, Metadata, Events>(options)`:
 
 ```ts
 import { Substratum } from '@svaltek/substratum';
 
 interface Content {
-    resource: { name: string; quantity: number; renewable: boolean };
+    resource: { name: string; quantity: number };
     hazard: { name: string; active: boolean };
 }
 
@@ -53,45 +62,49 @@ interface Metadata {
 }
 
 interface Events {
-    observation: { observer: string; confidence: number };
+    alarm: { name: string };
 }
 
 const world = new Substratum<Content, Metadata, Events>({
     indexedFields: ['confidence', 'faction'],
     indexedTags: true,
 });
-
-// Create shared content and attach it over a 32x1x32 extent
-const forest = world.putPoint(
-    [40, 0, 24],
-    { kind: 'resource', tags: ['wood', 'forest'], confidence: 0.95 },
-    { name: 'Oak woodland', quantity: 120, renewable: true },
-    { extent: [32, 1, 32] },
-);
-
-// Query nearest unique matching content
-for (const result of world.nearestContent([0, 0, 0], {
-    kind: 'resource',
-    tags: ['wood'],
-    limit: 5,
-})) {
-    console.log(result.distance, result.content.quantity);
-    // result.content.active -> compile-time error
-}
-
-// Update shared payload once; all placements reflect the update
-world.setContent(forest, {
-    name: 'Oak woodland',
-    quantity: 110,
-    renewable: true,
-});
 ```
 
-## Schema Contracts & Type Narrowing
+With those interfaces in place:
+- Returned IDs are **branded by kind** (`ContentId<'resource'>`), so `world.getContent(tree)` is automatically typed as `{ name: string; quantity: number }`.
+- Passing `{ kind: 'resource' }` to any query automatically narrows `hit.content` to `{ name: string; quantity: number }`.
+- Setting `indexedFields` and `indexedTags: true` tells Substratum to maintain fast lookup indexes for `where` and `tags` filters.
 
-- `kind` and `tags` are built-in metadata fields; the `kind` index is always enabled.
-- `ContentId<K>` is branded by kind: `getContent(forest)` returns the `resource` payload directly with no cast.
-- Passing `kind` to `search`, `searchContent`, `nearest`, `nearestContent`, `radius`, or `radiusContent` narrows every yielded result automatically.
-- Without `kind`, results are discriminated unions that narrow cleanly on `result.kind`.
-- Schema interfaces are **compile-time contracts**, not runtime validators. Use [middleware](/guide/middleware-and-plugins) to validate untrusted inputs.
-- For an open, dynamically typed runtime, use `new Substratum()` (defaults to `Record<string, unknown>`).
+> **Note:** TypeScript interfaces are compile-time contracts. To validate untrusted data at runtime, use [Middleware & Plugins](/guide/middleware-and-plugins).
+
+## Runtimes & Installation
+
+Install `@svaltek/substratum` in your project:
+
+```sh
+bun add @svaltek/substratum
+# or: npm install @svaltek/substratum
+```
+
+Substratum has zero runtime dependencies and uses standard ES2022 APIs (`globalThis.crypto.randomUUID()` by default, overridable via `idFactory`).
+
+| Runtime | How to Run |
+| --- | --- |
+| **Bun** | Imports `@svaltek/substratum` TypeScript source directly |
+| **Node.js 22.6+** | Runs TypeScript source with `node --experimental-strip-types`; installed consumers use `@svaltek/substratum/bundle` |
+| **Node.js 20+** | Imports the prebuilt ESM bundle `@svaltek/substratum/bundle` |
+| **Deno** | Imports TypeScript source directly |
+| **Browsers** | Uses your bundler or `@svaltek/substratum/bundle` |
+
+### Repository Development Commands
+
+If you are working from a local checkout of the repository:
+
+```sh
+bun install
+bun run test          # typecheck + runtime & extension tests
+bun run example       # run examples/warehouse.ts
+bun run benchmark     # run core microbenchmarks
+bun run build:bundle  # emit dist/substratum.esm.js + dist/extensions/*.js
+```

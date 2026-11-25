@@ -14,7 +14,19 @@
       "types": "./src/mod.ts",
       "import": "./dist/substratum.esm.js",
       "default": "./dist/substratum.esm.js"
-    }
+    },
+    "./bundle/*": {
+      "types": "./src/extensions/*.ts",
+      "import": "./dist/extensions/*.js",
+      "default": "./dist/extensions/*.js"
+    },
+    "./math": "./src/extensions/math.ts",
+    "./attention": "./src/extensions/attention.ts",
+    "./statistics": "./src/extensions/statistics.ts",
+    "./clustering": "./src/extensions/clustering.ts",
+    "./associations": "./src/extensions/associations.ts",
+    "./som": "./src/extensions/som.ts",
+    "./propagation": "./src/extensions/propagation.ts"
   },
   "types": "./src/mod.ts",
   "files": [
@@ -26,11 +38,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "build:bundle": "bun build src/mod.ts --outdir=dist --entry-naming=substratum.esm.js --format=esm --target=browser --sourcemap=linked",
+    "build:bundle": "bun build src/mod.ts --outdir=dist --entry-naming=substratum.esm.js --format=esm --target=browser --sourcemap=linked && bun build src/extensions/*.ts --outdir=dist/extensions --format=esm --target=browser --sourcemap=linked",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "tsc -p tsconfig.test.json && bun tests/runtime.test.ts",
-    "test:node": "tsc -p tsconfig.test.json && node --experimental-strip-types tests/runtime.test.ts",
+    "test": "tsc -p tsconfig.test.json && bun tests/runtime.test.ts && bun tests/extensions.test.ts",
+    "test:node": "tsc -p tsconfig.test.json && node --experimental-strip-types tests/runtime.test.ts && node --experimental-strip-types tests/extensions.test.ts",
     "benchmark": "bun benchmarks/index.ts",
+    "benchmark:extensions": "bun benchmarks/extensions.ts",
     "example": "bun examples/warehouse.ts",
     "example:node": "node --experimental-strip-types examples/warehouse.ts",
     "benchmark:node": "node --experimental-strip-types benchmarks/index.ts",

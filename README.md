@@ -220,6 +220,43 @@ Queries accept `kind`, `where` (exact field equality), `tags` (all requested tag
 - `idFactory`, if supplied, must return globally unique nonempty strings for the lifetime of IDs; duplicate currently stored IDs are rejected. Branded IDs are compile-time types, not capabilities.
 - Custom event data and payloads are not deep-frozen or copied. Consumers should treat event payloads as shared values. Query generators should not be used as stable snapshots across writes.
 
+## Benchmarks
+
+Measured with Bun 1.3.14 via `bun run benchmark` and `bun run benchmark:extensions`:
+
+### Core Runtime (`benchmarks/index.ts`)
+
+| Benchmark | Result |
+| --- | --- |
+| 10,000 point inserts | `571.96 ms` |
+| Cold layer query (628 results) | `5.893 ms` |
+| Warm layer query (median) | `0.391 ms` |
+| Point query median (with kind / without kind) | `0.0128 ms` / `0.0117 ms` |
+| Cold unaligned 3D `Bounds` query (319 results) | `3.985 ms` |
+| Nearest 10 in 10k world | `2.110 ms` |
+| Rare kind nearest 2 (median) | `0.0132 ms` |
+| 200 agents x 60 ticks (12,000 `moveContent` calls) | `775.67 ms` (`12.93 ms/tick`) |
+| `emitAt` with 0 / 100 / 1,000 / 5,000 nonmatching subscribers | `7.068` / `10.568` / `11.087` / `8.210 µs/event` |
+
+### Computational Extensions (`benchmarks/extensions.ts`)
+
+| Benchmark | Median Time |
+| --- | --- |
+| `math`: 10,000 x 384-D `cosineSimilarity` | `3.118 ms` |
+| `math`: 1,000 x `softmax(0.7)` over 1,000 scores | `11.620 ms` |
+| `attention`: `attend(radius=64, limit=20)` on 10k world | `2.557 ms` |
+| `statistics`: `analyse(6 metrics)` over ~1.5k hits in 10k world | `10.627 ms` |
+| `statistics`: `observeStatistics` across 200 batched inserts | `6.930 ms` |
+| `clustering`: `dbscan(1,000 points, eps=6, minSamples=4)` | `18.948 ms` |
+| `associations`: 5,000 `reinforce` + 500 `related` + `decay` | `5.851 ms` |
+| `som`: 200 `train()` steps on 8x8x4 (256 nodes) x 128-D | `7.305 ms` |
+| `som`: 500 `project()` calls on 256 nodes x 128-D | `13.741 ms` |
+| `propagation`: 10 `step()` rounds over 500 spatial nodes | `3.944 ms` |
+| `persisted associations`: 500 `reinforce` + `decay` (content + attachments) | `1.961 ms` |
+| `persisted som`: 50 `train()` steps on 256 persisted nodes x 64-D | `9.462 ms` |
+| `composed clustering` (`preserveIdentity`): 20 moves across 200 pts | `6.004 ms` |
+| `composed pipeline`: `associations` → `propagation(5 steps)` → `attend` | `0.886 ms` |
+
 ## Verification
 
-Verified with Bun 1.3.14, Node.js 22.23.1, and TypeScript 5.8.3, covering strict type contracts with intentional negative assertions, 19 runtime tests, 100 exact extent-cover checks, 200 differential `Bounds`/`BoxRegion` spatial checks, 400 differential spatial/proximity checks, 50 sparse semantic distance checks, 100 differential `Address` subscription-routing checks, and 100 differential `Bounds`/`BoxRegion` subscription-routing checks.
+Verified with Bun 1.3.14, Node.js 22.23.1, and TypeScript 5.8.3, covering strict type contracts with intentional negative assertions, 19 runtime tests, 8 extension test groups, 100 exact extent-cover checks, 200 differential `Bounds`/`BoxRegion` spatial checks, 400 differential spatial/proximity checks, 50 sparse semantic distance checks, 100 differential `Address` subscription-routing checks, and 100 differential `Bounds`/`BoxRegion` subscription-routing checks.

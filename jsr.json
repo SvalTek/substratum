@@ -1,7 +1,16 @@
 {
   "name": "@svaltek/substratum",
   "version": "0.1.0",
-  "exports": "./src/mod.ts",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./math": "./src/extensions/math.ts",
+    "./attention": "./src/extensions/attention.ts",
+    "./statistics": "./src/extensions/statistics.ts",
+    "./clustering": "./src/extensions/clustering.ts",
+    "./associations": "./src/extensions/associations.ts",
+    "./som": "./src/extensions/som.ts",
+    "./propagation": "./src/extensions/propagation.ts"
+  },
   "publish": {
     "include": [
       "src/**/*.ts",
