@@ -30,7 +30,7 @@ npm run test:node
 node --experimental-strip-types examples/warehouse.ts
 ```
 
-Deno can run the source directly (`deno run examples/warehouse.ts`); use `deno check src/mod.ts` for an additional runtime-specific check. The package root resolves to `src/mod.ts` for source-capable runtimes and toolchains. The standalone ESM bundle is optional: build it explicitly and import `@svaltek/substratum/bundle` when a runtime cannot load TypeScript source, such as plain Node.js 20. Default ID creation requires `globalThis.crypto.randomUUID()`; an `idFactory` can supply IDs in other environments.
+Deno can run the source directly (`deno run examples/warehouse.ts`); use `deno check src/mod.ts` for an additional runtime-specific check. The package root resolves to `src/mod.ts` for TypeScript-aware runtimes and toolchains. Node.js 22.6+ can run checkout source with type stripping, but Node.js refuses to strip TypeScript files inside `node_modules`; installed Node.js consumers should import `@svaltek/substratum/bundle`. The standalone ESM bundle is optional: build it explicitly when a runtime cannot load TypeScript source or needs an offline artifact. Browser apps need a build tool or the bundle. Default ID creation requires `globalThis.crypto.randomUUID()`; an `idFactory` can supply IDs in other environments.
 
 The package and JSR manifests use the intended name `@svaltek/substratum`. This source distribution is **not published**. Package scope ownership, registry availability and a project licence must be confirmed before publication. No licence has been assigned in this draft.
 

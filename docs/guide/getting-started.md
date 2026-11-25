@@ -11,9 +11,10 @@ Substratum uses standard TypeScript and ES2022 APIs (`globalThis.crypto.randomUU
 | Runtime | Source / Build Usage |
 | --- | --- |
 | **Bun** | Imports the package root TypeScript source directly |
-| **Node.js 22.6+** | Runs source directly via `node --experimental-strip-types` |
+| **Node.js 22.6+** | Runs checkout source via `node --experimental-strip-types`; installed package consumers use `@svaltek/substratum/bundle` because Node refuses TypeScript under `node_modules` |
 | **Node.js 20+** | Imports the optional single-file ESM bundle from `@svaltek/substratum/bundle` |
-| **Deno / Browsers** | Runs TypeScript source or imports the optional ESM bundle |
+| **Deno** | Runs TypeScript source directly |
+| **Browsers** | Uses an application build tool or imports the optional ESM bundle |
 
 ### Local development commands
 
