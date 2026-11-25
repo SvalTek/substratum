@@ -2,7 +2,7 @@ import { Substratum, type Bounds, type ContentId, type Vec3 } from '../src/mod.t
 import { cosineSimilarity, gaussian, softmax } from '../src/extensions/math.ts';
 import { attend, weightedAggregate } from '../src/extensions/attention.ts';
 import { analyse, observeStatistics } from '../src/extensions/statistics.ts';
-import { dbscan } from '../src/extensions/clustering.ts';
+import { dbscan, createClusterPlugin } from '../src/extensions/clustering.ts';
 import { createAssociations } from '../src/extensions/associations.ts';
 import { createSOM } from '../src/extensions/som.ts';
 import { createPropagation } from '../src/extensions/propagation.ts';
@@ -10,6 +10,9 @@ import { createPropagation } from '../src/extensions/propagation.ts';
 interface C {
     obs: { category: string; value: number };
     item: { index: number };
+    edge: { source: string; target: string; weight: number };
+    cluster: { count: number; centroid: Vec3 };
+    somNode: { coords: Vec3; weights: readonly number[] };
 }
 interface M {
     confidence?: number;
@@ -185,4 +188,107 @@ bench('statistics: analyse(6 metrics) over ~1.5k hits in 10k world', () => {
         for (let i = 0; i < 20; i++) net.activate(ids[i]!, 1.0);
         for (let s = 0; s < 10; s++) net.step();
     }, 5);
+    net.dispose();
+}
+
+// 8. Persisted & Composed Workloads
+{
+    const pAssocWorld = new Substratum<C, M, E>({ bits: 8 });
+    const pIds: ContentId<'item'>[] = [];
+    for (let i = 0; i < 100; i++) {
+        pIds.push(pAssocWorld.putPoint([i, 0, 0], { kind: 'item' }, { index: i }));
+    }
+    const pAssoc = createAssociations(pAssocWorld, {
+        learningRate: 0.05,
+        decayRate: 0.001,
+        kind: 'edge',
+        createPayload: e => ({ source: e.source, target: e.target, weight: e.weight }),
+        createMetadata: () => ({ kind: 'edge' }),
+    });
+    bench('persisted associations: 500 reinforce + decay (content + attachments)', () => {
+        for (let i = 0; i < 500; i++) {
+            pAssoc.reinforce(pIds[i % 100]!, pIds[(i * 7 + 3) % 100]!);
+        }
+        pAssoc.decay(1);
+    }, 5);
+    pAssoc.dispose(true);
+}
+
+{
+    const pSomWorld = new Substratum<C, M, E>({ bits: 8 });
+    const pSom = createSOM(pSomWorld, {
+        dimensions: [8, 8, 4], // 256 persisted nodes
+        inputDimensions: 64,
+        learningRate: 0.1,
+        neighbourhoodRadius: 2,
+        nodeKind: 'somNode',
+        createNodePayload: (weights, coords) => ({ coords, weights }),
+    });
+    const vecs = Array.from({ length: 50 }, () => Array.from({ length: 64 }, () => rand() * 2 - 1));
+    bench('persisted som: 50 train() steps on 256 persisted nodes x 64-D', () => {
+        for (let i = 0; i < vecs.length; i++) pSom.train(vecs[i]!);
+    }, 5);
+    pSom.dispose(true);
+}
+
+{
+    const cWorld = new Substratum<C, M, E>({ bits: 10 });
+    const obsIds: ContentId<'obs'>[] = [];
+    for (let c = 0; c < 4; c++) {
+        for (let i = 0; i < 50; i++) {
+            obsIds.push(cWorld.putPoint(
+                [c * 40 + (i % 10), 0, Math.floor(i / 10)],
+                { kind: 'obs' },
+                { category: 'pt', value: i },
+            ));
+        }
+    }
+    const stopCl = cWorld.use(createClusterPlugin<C, M, E, 'obs', 'cluster'>({
+        kind: 'obs',
+        clusterKind: 'cluster',
+        epsilon: 3,
+        minSamples: 4,
+        preserveIdentity: true,
+        createPayload: cl => ({ count: cl.count, centroid: cl.centroid }),
+    }));
+    let step = 0;
+    bench('composed clustering (preserveIdentity): 20 moves across 200 pts', () => {
+        step++;
+        cWorld.batch(() => {
+            for (let i = 0; i < 20; i++) {
+                cWorld.moveContent(obsIds[i]!, [(i % 10), step % 2, Math.floor(i / 10)]);
+            }
+        });
+    }, 5);
+    stopCl();
+}
+
+{
+    const compWorld = new Substratum<C, M, E>({ bits: 10 });
+    const cIds: ContentId<'item'>[] = [];
+    for (let i = 0; i < 200; i++) {
+        cIds.push(compWorld.putPoint([i % 20, 0, Math.floor(i / 20)], { kind: 'item' }, { index: i }));
+    }
+    const compAssoc = createAssociations(compWorld, { learningRate: 0.2 });
+    for (let i = 0; i < 200; i++) {
+        compAssoc.reinforce(cIds[i]!, cIds[(i + 1) % 200]!);
+        compAssoc.reinforce(cIds[i]!, cIds[(i + 7) % 200]!);
+    }
+    const compNet = createPropagation(compWorld, {
+        neighbors: id => compAssoc.related(id).map(e => ({ id: e.target, weight: e.weight })),
+    });
+    bench('composed pipeline: associations -> propagation(5 steps) -> attend', () => {
+        compNet.reset();
+        for (let i = 0; i < 10; i++) compNet.activate(cIds[i]!, 1.0);
+        for (let s = 0; s < 5; s++) compNet.step();
+        attend(compWorld, [10, 0, 5], {
+            radius: 15,
+            kind: 'item',
+            score: h => compNet.getActivation(h.id) + gaussian(h.distance ?? 0, 5),
+            normalize: softmax(0.5),
+            limit: 10,
+        });
+    }, 5);
+    compNet.dispose();
+    compAssoc.dispose();
 }

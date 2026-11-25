@@ -58,4 +58,4 @@ world.update(0.016);
 | `neighbors` | spatial radius | Custom `(id, world) => NeighborLink[]` resolver |
 | `onStep` | — | Hook called with `(activeMap, iteration)` after each step |
 
-Call `network.dispose()` when finished to detach any internal spatial cache listener and release retained state; `dispose()` is terminal (`activate()`, `step()`, and `run()` throw after disposal).
+Call `network.dispose()` when finished to detach any internal spatial cache listener and release retained state; `dispose()` is terminal (`activate()`, `step()`, and `run()` throw after disposal). If you installed `createPropagationPlugin(network)`, uninstall the plugin (`stop()`) **before** calling `network.dispose()`, otherwise subsequent `world.update(dt)` calls will throw.

@@ -59,7 +59,7 @@ export interface AttendOptions<C extends object, M extends object, K extends Kin
     readonly overlap?: boolean;
     /** Whether to rank individual attachments or deduplicate by ContentId. Default: 'attachment'. */
     readonly scope?: 'attachment' | 'content';
-    /** How multiple attachment scores for the same ContentId are combined when scope is 'content'. Default: 'max'. */
+    /** How multiple attachment scores for the same ContentId are combined when scope is 'content'. When omitted, selects one representative placement before scoring. */
     readonly combine?: ScoreCombiner<C, M, K>;
     /** Scoring function for each candidate hit. Default: gaussian(hit.distance ?? 0, 1). */
     readonly score?: (hit: AttendHit<C, M, K>) => number;
