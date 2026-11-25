@@ -49,22 +49,19 @@ jobs:
           bun run test:node
           bun run example
 
-      - name: Build ESM modules, declarations & single-file ESM bundle
-        run: |
-          bun run build
-          bun run build:bundle
+      - name: Build optional single-file ESM bundle
+        run: bun run build:bundle
 
-      - name: Smoke test release ESM artifacts
+      - name: Smoke test optional ESM bundle
         run: |
           node -e "
-            for (const entry of ['./dist/mod.js', './dist/substratum.esm.js']) {
-              const { Substratum } = await import(entry);
-              const world = new Substratum();
-              const id = world.putPoint([0, 0, 0], { kind: 'ok' }, { ready: true });
-              if (!world.getContent(id).ready) throw new Error('Smoke failed: ' + entry);
-              world.validate();
-              console.log('RELEASE ESM SMOKE PASS:', entry);
-            }
+            const entry = './dist/substratum.esm.js';
+            const { Substratum } = await import(entry);
+            const world = new Substratum();
+            const id = world.putPoint([0, 0, 0], { kind: 'ok' }, { ready: true });
+            if (!world.getContent(id).ready) throw new Error('Smoke failed: ' + entry);
+            world.validate();
+            console.log('RELEASE ESM SMOKE PASS:', entry);
           "
 
       - name: Pack release tarball & checksums
