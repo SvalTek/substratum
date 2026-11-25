@@ -6,12 +6,12 @@ Substratum lets you query by **region**, by **nearest neighbours**, or by **Eucl
 
 | Method | Spatial Input | Returns |
 | --- | --- | --- |
-| `search(region?, options?)` | Any `Region` (default `ALL`) | Matching attachments |
-| `searchContent(region?, options?)` | Any `Region` (default `ALL`) | Unique matching `ContentId`s |
-| `nearest(xyz, options?)` | `Vec3` origin | Up to `limit` (default `1`) nearest attachments |
-| `nearestContent(xyz, options?)` | `Vec3` origin | Up to `limit` nearest unique `ContentId`s |
-| `radius(xyz, radius, options?)` | `Vec3` origin + `radius` | All attachments within Euclidean `radius` |
-| `radiusContent(xyz, radius, options?)` | `Vec3` origin + `radius` | Unique `ContentId`s within Euclidean `radius` |
+| `search(region?, options?)` | Any `Region` (default `ALL`) | Matching attachments (`SearchResult`) |
+| `searchContent(region?, options?)` | Any `Region` (default `ALL`) | Unique-content `SearchResult` objects (deduplicated by `ContentId`) |
+| `nearest(xyz, options?)` | `Vec3` origin | Up to `limit` (default `1`) nearest matching attachments (`DistanceResult`) |
+| `nearestContent(xyz, options?)` | `Vec3` origin | Up to `limit` nearest unique-content `DistanceResult` objects |
+| `radius(xyz, radius, options?)` | `Vec3` origin + `radius` | All attachments within Euclidean `radius` (`DistanceResult`) |
+| `radiusContent(xyz, radius, options?)` | `Vec3` origin + `radius` | Unique-content `DistanceResult` objects within Euclidean `radius` |
 
 All six return lazy `IterableIterator`s. If you plan to mutate `world` while iterating, materialise the results first (`[...world.search(...)]`).
 
