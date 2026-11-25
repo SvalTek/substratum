@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, Test, Bundle & Docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install devDependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (including type contracts)
+        run: bun run typecheck
+
+      - name: Run tests (Bun)
+        run: bun run test
+
+      - name: Run tests (Node.js 22)
+        run: bun run test:node
+
+      - name: Run warehouse example
+        run: bun run example
+
+      - name: Build ESM modules & declarations
+        run: bun run build
+
+      - name: Build single-file ESM bundle
+        run: bun run build:bundle
+
+      - name: Smoke test ESM outputs on Node.js 22
+        run: |
+          node -e "
+            for (const entry of ['./dist/mod.js', './dist/substratum.esm.js']) {
+              const { Substratum } = await import(entry);
+              const world = new Substratum({ indexedTags: true });
+              const id = world.putPoint([1, 2, 3], { kind: 'item', tags: ['ok'] }, { value: 42 });
+              const hits = [...world.search([[0, 2], [0, 3], [0, 4]], { kind: 'item', tags: ['ok'] })];
+              if (hits.length !== 1 || hits[0].id !== id || hits[0].content.value !== 42) {
+                throw new Error('ESM smoke test failed for ' + entry);
+              }
+              world.validate();
+              console.log('ESM SMOKE PASS:', entry);
+            }
+          "
+
+      - name: Build VitePress documentation
+        run: bun run docs:build

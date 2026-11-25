@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Build, Verify & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "Tag version: $TAG_VERSION | package.json version: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Git tag ($GITHUB_REF_NAME) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: Install devDependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck & run full test suite (Bun + Node.js 22)
+        run: |
+          bun run typecheck
+          bun run test
+          bun run test:node
+          bun run example
+
+      - name: Build ESM modules, declarations & single-file ESM bundle
+        run: |
+          bun run build
+          bun run build:bundle
+
+      - name: Smoke test release ESM artifacts
+        run: |
+          node -e "
+            for (const entry of ['./dist/mod.js', './dist/substratum.esm.js']) {
+              const { Substratum } = await import(entry);
+              const world = new Substratum();
+              const id = world.putPoint([0, 0, 0], { kind: 'ok' }, { ready: true });
+              if (!world.getContent(id).ready) throw new Error('Smoke failed: ' + entry);
+              world.validate();
+              console.log('RELEASE ESM SMOKE PASS:', entry);
+            }
+          "
+
+      - name: Pack release tarball & checksums
+        run: |
+          mkdir -p release-assets
+          TGZ="$(npm pack --pack-destination release-assets | tail -n 1)"
+          cp dist/substratum.esm.js release-assets/substratum.esm.js
+          cp dist/substratum.esm.js.map release-assets/substratum.esm.js.map
+          (cd release-assets && sha256sum "$TGZ" substratum.esm.js substratum.esm.js.map > SHA256SUMS.txt)
+          ls -la release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
+          files: |
+            release-assets/*.tgz
+            release-assets/substratum.esm.js
+            release-assets/substratum.esm.js.map
+            release-assets/SHA256SUMS.txt
+
+      - name: Publish to npm (when NPM_TOKEN is configured on stable tags)
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN secret not set; skipping npm publish."
+            exit 0
+          fi
+          npm publish --access public --provenance
