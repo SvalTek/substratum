@@ -9,18 +9,14 @@
   "homepage": "https://svaltek.github.io/substratum/",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js",
-      "default": "./dist/mod.js"
-    },
+    ".": "./src/mod.ts",
     "./bundle": {
-      "types": "./dist/mod.d.ts",
+      "types": "./src/mod.ts",
       "import": "./dist/substratum.esm.js",
       "default": "./dist/substratum.esm.js"
     }
   },
-  "types": "./dist/mod.d.ts",
+  "types": "./src/mod.ts",
   "files": [
     "dist",
     "src",
@@ -30,14 +26,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
     "build:bundle": "bun build src/mod.ts --outdir=dist --entry-naming=substratum.esm.js --format=esm --target=browser --sourcemap=linked",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "tsc -p tsconfig.test.json && bun tests/runtime.test.ts",
     "test:node": "tsc -p tsconfig.test.json && node --experimental-strip-types tests/runtime.test.ts",
     "benchmark": "bun benchmarks/index.ts",
     "example": "bun examples/warehouse.ts",
-    "prepack": "tsc -p tsconfig.json",
     "example:node": "node --experimental-strip-types examples/warehouse.ts",
     "benchmark:node": "node --experimental-strip-types benchmarks/index.ts",
     "docs:dev": "vitepress dev docs",

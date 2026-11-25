@@ -10,10 +10,10 @@ Substratum uses standard TypeScript and ES2022 APIs (`globalThis.crypto.randomUU
 
 | Runtime | Source / Build Usage |
 | --- | --- |
-| **Bun** | Runs `./src/mod.ts` directly; intended local dev runtime |
-| **Node.js 22.6+** | Runs source directly via `node --experimental-strip-types`, or consumes ESM from `dist/` |
-| **Node.js 20+** | Consumes compiled ESM (`dist/mod.js`) or single-file bundle (`dist/substratum.esm.js`) |
-| **Deno / Browsers** | Runs `./src/mod.ts` or imports the single-file ESM bundle |
+| **Bun** | Imports the package root TypeScript source directly |
+| **Node.js 22.6+** | Runs source directly via `node --experimental-strip-types` |
+| **Node.js 20+** | Imports the optional single-file ESM bundle from `@svaltek/substratum/bundle` |
+| **Deno / Browsers** | Runs TypeScript source or imports the optional ESM bundle |
 
 ### Local development commands
 
@@ -23,8 +23,7 @@ bun run typecheck   # strict TypeScript + negative type contract tests
 bun run test        # typecheck + portable runtime & differential test suite
 bun run example     # run examples/warehouse.ts
 bun run benchmark   # run microbenchmarks
-bun run build       # compile ESM modules & .d.ts declarations into dist/
-bun run build:bundle # emit single-file dist/substratum.esm.js + sourcemap
+bun run build:bundle # optional: emit dist/substratum.esm.js + sourcemap
 ```
 
 Node.js 22+ equivalents:
@@ -32,7 +31,6 @@ Node.js 22+ equivalents:
 ```sh
 npm install
 npm run test:node
-npm run build
 node --experimental-strip-types examples/warehouse.ts
 ```
 

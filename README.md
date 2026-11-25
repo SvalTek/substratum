@@ -16,27 +16,27 @@ bun run typecheck
 bun run test
 bun run example
 bun run benchmark
-bun run build
 ```
 
 `bun run test` executes the portable assertion suite and checks the compile-time type contracts. The suite is deliberately not dependent on a runtime-specific test framework.
+
+The package root exports the TypeScript source. `bun run build:bundle` is optional and creates the standalone ESM bundle under `dist/` for runtimes that cannot load the source directly or need an offline artifact.
 
 Node.js 22.6+ with type stripping enabled can run the same source tests:
 
 ```sh
 npm install
 npm run test:node
-npm run build
 node --experimental-strip-types examples/warehouse.ts
 ```
 
-Deno can run the source directly (`deno run examples/warehouse.ts`); use `deno check src/mod.ts` for an additional runtime-specific check. Node.js 20+ consumers can use the compiled ESM in `dist/`. Default ID creation requires `globalThis.crypto.randomUUID()`; an `idFactory` can supply IDs in other environments.
+Deno can run the source directly (`deno run examples/warehouse.ts`); use `deno check src/mod.ts` for an additional runtime-specific check. The package root resolves to `src/mod.ts` for source-capable runtimes and toolchains. The standalone ESM bundle is optional: build it explicitly and import `@svaltek/substratum/bundle` when a runtime cannot load TypeScript source, such as plain Node.js 20. Default ID creation requires `globalThis.crypto.randomUUID()`; an `idFactory` can supply IDs in other environments.
 
 The package and JSR manifests use the intended name `@svaltek/substratum`. This source distribution is **not published**. Package scope ownership, registry availability and a project licence must be confirmed before publication. No licence has been assigned in this draft.
 
 ## Quickstart
 
-For local source development, import from `./src/mod.ts`. After publication (or after building and installing the package locally), import from `@svaltek/substratum`.
+The package root `@svaltek/substratum` exports the TypeScript source at `./src/mod.ts`. For local source development, importing from `./src/mod.ts` is also supported. The optional standalone ESM artifact is available at `@svaltek/substratum/bundle` after running `bun run build:bundle`.
 
 ```ts
 import { Substratum } from './src/mod.ts';
